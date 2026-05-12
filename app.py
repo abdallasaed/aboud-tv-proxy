@@ -1,6 +1,6 @@
-from flask import Flask, request, Response
 import requests
 import urllib.parse
+from flask import Flask, request, Response
 
 app = Flask(__name__)
 
@@ -13,6 +13,7 @@ def proxy_stream():
     if not stream_url:
         return "Missing URL parameter", 400
 
+    # تجهيز الترويسات
     headers = {}
     if user_agent:
         headers['User-Agent'] = user_agent
@@ -20,31 +21,33 @@ def proxy_stream():
         headers['Referer'] = referer
 
     try:
-        response = requests.get(stream_url, headers=headers, timeout=10)
+        # طلب ملف البث
+        response = requests.get(stream_url, headers=headers, timeout=15)
         response.raise_for_status()
         
-        playlist_content = response.text
+        content = response.text
         base_url = stream_url.rsplit('/', 1)[0] + '/'
 
-        modified_playlist = []
-        for line in playlist_content.splitlines():
+        # إعادة بناء الروابط داخل الملف
+        lines = content.splitlines()
+        modified_content = []
+        for line in lines:
             line = line.strip()
-            if line == '' or line.startswith('#'):
-                modified_playlist.append(line)
-            elif line.startswith('http'):
-                modified_playlist.append(line)
+            if not line:
+                continue
+            if line.startswith('#'):
+                modified_content.append(line)
             else:
-                absolute_url = urllib.parse.urljoin(base_url, line)
-                modified_playlist.append(absolute_url)
+                # تحويل الروابط النسبية إلى روابط كاملة
+                full_url = urllib.parse.urljoin(base_url, line)
+                modified_content.append(full_url)
 
-        # تغيير mimetype لضمان التعرف عليه كمشغل فيديو
-return Response('\n'.join(modified_playlist), mimetype='application/x-mpegURL')
+        # الحل الجذري لمشكلة المشغل: إرسال نوع المحتوى الصحيح
+        output = "\n".join(modified_content)
+        return Response(output, mimetype='application/x-mpegURL')
 
-
-    except requests.exceptions.RequestException as e:
-        return f"Error fetching stream: {str(e)}", 502
     except Exception as e:
-        return f"Internal Server Error: {str(e)}", 500
+        return f"Error: {str(e)}", 500
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run()
