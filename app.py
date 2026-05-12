@@ -37,7 +37,9 @@ def proxy_stream():
                 absolute_url = urllib.parse.urljoin(base_url, line)
                 modified_playlist.append(absolute_url)
 
-        return Response('\n'.join(modified_playlist), mimetype='application/vnd.apple.mpegurl')
+        # تغيير mimetype لضمان التعرف عليه كمشغل فيديو
+return Response('\n'.join(modified_playlist), mimetype='application/x-mpegURL')
+
 
     except requests.exceptions.RequestException as e:
         return f"Error fetching stream: {str(e)}", 502
