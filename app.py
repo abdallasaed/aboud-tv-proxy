@@ -1,8 +1,9 @@
 import requests
-import urllib.parse
 from flask import Flask, request, Response
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app) # السماح بتبادل الموارد بين النطاقات المختلفة
 
 @app.route('/play')
 def proxy_stream():
@@ -11,9 +12,8 @@ def proxy_stream():
     referer = request.args.get('ref')
 
     if not stream_url:
-        return "Missing URL parameter", 400
+        return "URL is missing", 400
 
-    # تجهيز الترويسات
     headers = {}
     if user_agent:
         headers['User-Agent'] = user_agent
@@ -21,30 +21,20 @@ def proxy_stream():
         headers['Referer'] = referer
 
     try:
-        # طلب ملف البث
-        response = requests.get(stream_url, headers=headers, timeout=15)
-        response.raise_for_status()
+        # جلب البيانات الخام من السيرفر الأصلي
+        response = requests.get(stream_url, headers=headers, timeout=15, verify=False)
         
-        content = response.text
-        base_url = stream_url.rsplit('/', 1)[0] + '/'
-
-        # إعادة بناء الروابط داخل الملف
-        lines = content.splitlines()
-        modified_content = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith('#'):
-                modified_content.append(line)
-            else:
-                # تحويل الروابط النسبية إلى روابط كاملة
-                full_url = urllib.parse.urljoin(base_url, line)
-                modified_content.append(full_url)
-
-        # الحل الجذري لمشكلة المشغل: إرسال نوع المحتوى الصحيح
-        output = "\n".join(modified_content)
-        return Response(output, mimetype='application/x-mpegURL')
+        # إرسال المحتوى كما هو دون تعديل أسطر (لتجنب إتلاف الملف)
+        # مع تحديد Header نوع الملف بشكل دقيق جداً للمشغل المدمج
+        return Response(
+            response.content,
+            status=response.status_code,
+            content_type='application/vnd.apple.mpegurl',
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Content-Disposition': 'inline; filename="playlist.m3u8"'
+            }
+        )
 
     except Exception as e:
         return f"Error: {str(e)}", 500
