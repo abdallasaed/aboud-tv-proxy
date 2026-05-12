@@ -1,9 +1,10 @@
 import requests
+import urllib.parse
 from flask import Flask, request, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app) # السماح بتبادل الموارد بين النطاقات المختلفة
+CORS(app)
 
 @app.route('/play')
 def proxy_stream():
@@ -12,27 +13,51 @@ def proxy_stream():
     referer = request.args.get('ref')
 
     if not stream_url:
-        return "URL is missing", 400
+        return "URL missing", 400
 
-    headers = {}
-    if user_agent:
-        headers['User-Agent'] = user_agent
+    # تجهيز الترويسات
+    headers = {
+        'User-Agent': user_agent if user_agent else 'Mozilla/5.0',
+    }
     if referer:
         headers['Referer'] = referer
 
     try:
-        # جلب البيانات الخام من السيرفر الأصلي
+        # جلب ملف الـ m3u8 من السيرفر الأصلي
         response = requests.get(stream_url, headers=headers, timeout=15, verify=False)
+        response.raise_for_status()
         
-        # إرسال المحتوى كما هو دون تعديل أسطر (لتجنب إتلاف الملف)
-        # مع تحديد Header نوع الملف بشكل دقيق جداً للمشغل المدمج
+        # استخراج الرابط الأساسي (Base URL) لبناء الروابط الكاملة
+        # مثلاً لو الرابط http://site.com/live/1.m3u8 يكون الأساس http://site.com/live/
+        parsed_url = urllib.parse.urlparse(stream_url)
+        base_path = parsed_url.scheme + "://" + parsed_url.netloc + parsed_url.path.rsplit('/', 1)[0] + "/"
+
+        lines = response.text.splitlines()
+        new_playlist = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                # الحفاظ على التاغات كما هي
+                new_playlist.append(line)
+            else:
+                # تحويل أي رابط نسبي إلى رابط كامل يشير للسيرفر الأصلي مباشرة
+                if line.startswith("http"):
+                    new_playlist.append(line)
+                else:
+                    full_segment_url = urllib.parse.urljoin(base_path, line)
+                    new_playlist.append(full_segment_url)
+
+        # إرجاع الملف الجديد للمشغل المدمج
+        output = "\n".join(new_playlist)
         return Response(
-            response.content,
-            status=response.status_code,
-            content_type='application/vnd.apple.mpegurl',
+            output,
+            mimetype='application/vnd.apple.mpegurl',
             headers={
-                'Access-Control-Allow-Origin': '*',
-                'Content-Disposition': 'inline; filename="playlist.m3u8"'
+                'Content-Type': 'application/vnd.apple.mpegurl',
+                'Access-Control-Allow-Origin': '*'
             }
         )
 
