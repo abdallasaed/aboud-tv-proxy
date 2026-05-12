@@ -6,7 +6,8 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-@app.route('/play')
+# تغيير اسم المسار لينتهي بـ m3u8 ليقبله المشغل فوراً
+@app.route('/stream.m3u8')
 def proxy_stream():
     stream_url = request.args.get('url')
     user_agent = request.args.get('ua')
@@ -15,20 +16,16 @@ def proxy_stream():
     if not stream_url:
         return "URL missing", 400
 
-    # تجهيز الترويسات
-    headers = {
-        'User-Agent': user_agent if user_agent else 'Mozilla/5.0',
-    }
+    headers = {}
+    if user_agent:
+        headers['User-Agent'] = user_agent
     if referer:
         headers['Referer'] = referer
 
     try:
-        # جلب ملف الـ m3u8 من السيرفر الأصلي
         response = requests.get(stream_url, headers=headers, timeout=15, verify=False)
         response.raise_for_status()
-        
-        # استخراج الرابط الأساسي (Base URL) لبناء الروابط الكاملة
-        # مثلاً لو الرابط http://site.com/live/1.m3u8 يكون الأساس http://site.com/live/
+
         parsed_url = urllib.parse.urlparse(stream_url)
         base_path = parsed_url.scheme + "://" + parsed_url.netloc + parsed_url.path.rsplit('/', 1)[0] + "/"
 
@@ -40,26 +37,25 @@ def proxy_stream():
             if not line:
                 continue
             if line.startswith("#"):
-                # الحفاظ على التاغات كما هي
                 new_playlist.append(line)
             else:
-                # تحويل أي رابط نسبي إلى رابط كامل يشير للسيرفر الأصلي مباشرة
-                if line.startswith("http"):
-                    new_playlist.append(line)
+                # إذا كان الرابط يخص قائمة فرعية (m3u8 أخرى)، نجبره على المرور عبر سيرفرنا مرة أخرى
+                if ".m3u8" in line:
+                    if not line.startswith("http"):
+                        line = urllib.parse.urljoin(base_path, line)
+                    
+                    proxy_url = f"/stream.m3u8?url={urllib.parse.quote(line)}"
+                    if user_agent: proxy_url += f"&ua={urllib.parse.quote(user_agent)}"
+                    if referer: proxy_url += f"&ref={urllib.parse.quote(referer)}"
+                    new_playlist.append(proxy_url)
                 else:
-                    full_segment_url = urllib.parse.urljoin(base_path, line)
-                    new_playlist.append(full_segment_url)
+                    # إذا كان ملف فيديو (ts)، نحوله لرابط كامل مباشر
+                    if not line.startswith("http"):
+                        line = urllib.parse.urljoin(base_path, line)
+                    new_playlist.append(line)
 
-        # إرجاع الملف الجديد للمشغل المدمج
         output = "\n".join(new_playlist)
-        return Response(
-            output,
-            mimetype='application/vnd.apple.mpegurl',
-            headers={
-                'Content-Type': 'application/vnd.apple.mpegurl',
-                'Access-Control-Allow-Origin': '*'
-            }
-        )
+        return Response(output, mimetype='application/vnd.apple.mpegurl')
 
     except Exception as e:
         return f"Error: {str(e)}", 500
