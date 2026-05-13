@@ -7,14 +7,14 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# --- إضافة الصفحة الرئيسية للتأكد من عمل السيرفر ---
 @app.route('/')
 def home():
-    return "<h1>Aboud TV Proxy is Running 🚀</h1><p>السيرفر يعمل بكفاءة ومستعد لمعالجة البث.</p>", 200
+    return "<h1>Aboud TV Proxy is Running 🚀</h1>", 200
 
 def decode_b64(val):
     if not val: return None
     try:
+        val = val.replace(' ', '+')
         val += '=' * (-len(val) % 4)
         return base64.b64decode(val).decode('utf-8')
     except:
@@ -57,12 +57,28 @@ def proxy_m3u8():
                     parts = line.split('URI="')
                     sub_url = parts[1].split('"')[0]
                     full_sub = urllib.parse.urljoin(base_url, sub_url)
-                    new_uri = f"stream.m3u8?url={urllib.parse.quote(full_sub)}&ua={urllib.parse.quote(user_agent or '')}&ref={urllib.parse.quote(referer or '')}"
+                    
+                    # إعادة التشفير للمسارات الداخلية
+                    bx_u = urllib.parse.quote(base64.b64encode(full_sub.encode()).decode())
+                    bx_a = urllib.parse.quote(base64.b64encode((user_agent or '').encode()).decode())
+                    bx_r = urllib.parse.quote(base64.b64encode((referer or '').encode()).decode())
+                    
+                    # إضافة السلاش / هنا مهمة جداً لعدم ضياع المشغل
+                    new_uri = f"/stream.m3u8?bx_url={bx_u}&bx_ua={bx_a}&bx_ref={bx_r}"
                     line = parts[0] + 'URI="' + new_uri + '"' + parts[1].split('"')[1]
                 new_playlist.append(line)
             else:
                 full_url = urllib.parse.urljoin(base_url, line)
-                proxy_link = f"ts?url={urllib.parse.quote(full_url)}&ua={urllib.parse.quote(user_agent or '')}&ref={urllib.parse.quote(referer or '')}"
+                bx_u = urllib.parse.quote(base64.b64encode(full_url.encode()).decode())
+                bx_a = urllib.parse.quote(base64.b64encode((user_agent or '').encode()).decode())
+                bx_r = urllib.parse.quote(base64.b64encode((referer or '').encode()).decode())
+                
+                # السر هنا: التفريق بين القوائم الفرعية وقطع الفيديو
+                if ".m3u8" in line.lower() or "playlist" in line.lower() or "chunklist" in line.lower():
+                    proxy_link = f"/stream.m3u8?bx_url={bx_u}&bx_ua={bx_a}&bx_ref={bx_r}"
+                else:
+                    proxy_link = f"/ts?bx_url={bx_u}&bx_ua={bx_a}&bx_ref={bx_r}"
+                    
                 new_playlist.append(proxy_link)
 
         return Response("\n".join(new_playlist), mimetype='application/vnd.apple.mpegurl')
@@ -83,7 +99,7 @@ def proxy_ts():
                 r.raise_for_status()
                 for chunk in r.iter_content(chunk_size=8192):
                     yield chunk
-        except Exception as e:
+        except:
             pass
             
     return Response(generate(), content_type='video/mp2t')
