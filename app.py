@@ -7,14 +7,18 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# دالة فك التشفير
+# --- إضافة الصفحة الرئيسية للتأكد من عمل السيرفر ---
+@app.route('/')
+def home():
+    return "<h1>Aboud TV Proxy is Running 🚀</h1><p>السيرفر يعمل بكفاءة ومستعد لمعالجة البث.</p>", 200
+
 def decode_b64(val):
     if not val: return None
     try:
-        val += '=' * (-len(val) % 4) # إصلاح الفراغات
+        val += '=' * (-len(val) % 4)
         return base64.b64decode(val).decode('utf-8')
     except:
-        return val # إذا لم يكن مشفراً، يعيده كما هو
+        return val
 
 def get_headers(ua, ref):
     headers = {'User-Agent': ua if ua else 'Mozilla/5.0'}
@@ -31,7 +35,6 @@ def get_headers(ua, ref):
 
 @app.route('/stream.m3u8')
 def proxy_m3u8():
-    # استقبال البيانات المشفرة أو العادية
     stream_url = decode_b64(request.args.get('bx_url')) or request.args.get('url')
     user_agent = decode_b64(request.args.get('bx_ua')) or request.args.get('ua')
     referer = decode_b64(request.args.get('bx_ref')) or request.args.get('ref')
