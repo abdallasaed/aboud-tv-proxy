@@ -34,51 +34,10 @@ def get_headers(ua, ref):
             pass
     return headers
 
-# 🔥 المسار الخاص بسحب قطع الـ DRM (مع أوامر الطباعة لكشف الخلل) 🔥
-@app.route('/shaka_proxy')
-def shaka_proxy():
-    target_url = decode_b64(request.args.get('bx_url'))
-    ua = decode_b64(request.args.get('bx_ua'))
-    ref = decode_b64(request.args.get('bx_ref'))
-    
-    print("\n" + "="*40, file=sys.stderr, flush=True)
-    print(f"[DRM PROXY] TARGET: {target_url}", file=sys.stderr, flush=True)
-    print(f"[DRM PROXY] REF: {ref} | UA: {ua}", file=sys.stderr, flush=True)
-    
-    if not target_url: return "Missing URL", 400
-    headers = get_headers(ua, ref)
-    
-    if 'Range' in request.headers:
-        headers['Range'] = request.headers['Range']
-        
-    try:
-        r = requests.get(target_url, headers=headers, stream=True, timeout=15, verify=False)
-        print(f"[DRM PROXY] HTTP STATUS: {r.status_code}", file=sys.stderr, flush=True)
-        print("="*40 + "\n", file=sys.stderr, flush=True)
-        
-        resp_headers = {}
-        if 'Content-Type' in r.headers: resp_headers['Content-Type'] = r.headers['Content-Type']
-        if 'Content-Range' in r.headers: resp_headers['Content-Range'] = r.headers['Content-Range']
-        if 'Accept-Ranges' in r.headers: resp_headers['Accept-Ranges'] = r.headers['Accept-Ranges']
-        resp_headers['Access-Control-Allow-Origin'] = '*' 
-        
-        def generate():
-            for chunk in r.iter_content(chunk_size=8192):
-                yield chunk
-                
-        return Response(generate(), status=r.status_code, headers=resp_headers)
-    except Exception as e:
-        print(f"[DRM PROXY] FATAL ERROR: {str(e)}", file=sys.stderr, flush=True)
-        return str(e), 500
-
 @app.route('/drm')
 def play_drm():
     stream_url = decode_b64(request.args.get('bx_url'))
     drm_key = decode_b64(request.args.get('bx_key'))
-    raw_ua = request.args.get('bx_ua') or ''
-    raw_ref = request.args.get('bx_ref') or ''
-    
-    print(f"\n[DRM PAGE OPENED] URL: {stream_url}", file=sys.stderr, flush=True)
     
     html = f"""
     <!DOCTYPE html>
@@ -113,8 +72,6 @@ def play_drm():
         <script>
             const manifestUri = '{stream_url}';
             const drmInfo = '{drm_key or ''}';
-            const rawUa = '{raw_ua}';
-            const rawRef = '{raw_ref}';
 
             async function initPlayer() {{
                 const video = document.getElementById('video');
@@ -126,19 +83,7 @@ def play_drm():
                     addSeekBar: true
                 }});
 
-                player.getNetworkingEngine().registerRequestFilter(function(type, request) {{
-                    if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST || type == shaka.net.NetworkingEngine.RequestType.SEGMENT) {{
-                        const originalUri = request.uris[0];
-                        const b64Encode = (str) => btoa(unescape(encodeURIComponent(str)));
-                        request.uris[0] = '/shaka_proxy?bx_url=' + encodeURIComponent(b64Encode(originalUri)) + '&bx_ua=' + rawUa + '&bx_ref=' + rawRef;
-                    }}
-                }});
-
-                player.getNetworkingEngine().registerResponseFilter(function(type, response) {{
-                    if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST) {{
-                        response.uri = manifestUri; 
-                    }}
-                }});
+                // لاحظ: قمنا بحذف البروكسي هنا لكي يتصل هاتفك بالقناة مباشرة!
 
                 if (drmInfo) {{
                     if (drmInfo.includes('keyid=') && drmInfo.includes('key=')) {{
