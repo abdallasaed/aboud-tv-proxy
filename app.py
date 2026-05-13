@@ -36,8 +36,6 @@ def get_headers(ua, ref):
         except:
             pass
     return headers
-
-# مسار مشغل الـ DRM الذكي
 @app.route('/drm')
 def play_drm():
     stream_url = decode_b64(request.args.get('bx_url'))
@@ -45,38 +43,71 @@ def play_drm():
     
     html = f"""
     <!DOCTYPE html>
-    <html lang="ar">
+    <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>Aboud TV - DRM Player</title>
+        <title>Aboud TV - Pro DRM Player</title>
+        <!-- استدعاء مكتبات المشغل -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.1/shaka-player.ui.min.js"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.1/controls.min.css">
         <style>
-            body {{ margin: 0; background-color: #000; overflow: hidden; height: 100vh; display: flex; justify-content: center; align-items: center; font-family: sans-serif; }}
+            /* تخصيص ألوان المشغل ليتطابق مع هيبة تطبيقك */
+            :root {{
+                --shaka-color-primary: #4facfe; 
+                --shaka-color-text: #ffffff;
+            }}
+            body {{ margin: 0; background-color: #000; overflow: hidden; height: 100vh; font-family: 'Segoe UI', sans-serif; }}
             video {{ width: 100%; height: 100%; outline: none; }}
-            .loading {{ position: absolute; color: #4facfe; font-size: 18px; font-weight: bold; z-index: 10; text-align: center; }}
+            
+            /* شاشة التحميل السينمائية */
+            .loading-container {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10; text-align: center; color: white; }}
+            .spinner {{ width: 50px; height: 50px; border: 5px solid rgba(79, 172, 254, 0.3); border-top-color: #4facfe; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }}
+            @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+            
+            /* زر الرجوع للخلف */
+            .back-btn {{ position: absolute; top: 20px; left: 20px; z-index: 30; background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; width: 45px; height: 45px; font-size: 20px; cursor: pointer; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(10px); transition: 0.3s; }}
+            .back-btn:active {{ transform: scale(0.9); background: rgba(255,255,255,0.3); }}
+            
+            .shaka-video-container {{ width: 100%; height: 100%; }}
         </style>
     </head>
     <body>
-        <div id="loading" class="loading">جاري فك التشفير والتشغيل... 🚀</div>
-        <div data-shaka-player-container style="width: 100%; height: 100%; z-index: 20;">
+        <!-- زر العودة لتطبيقك -->
+        <button class="back-btn" onclick="history.back()">🔙</button>
+        
+        <!-- شاشة التحميل -->
+        <div id="loading" class="loading-container">
+            <div class="spinner" id="spinner"></div>
+            <div id="loading-text" style="font-size: 16px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">جاري فك التشفير السينمائي... 🚀</div>
+        </div>
+
+        <div data-shaka-player-container>
             <video autoplay data-shaka-player id="video"></video>
         </div>
+
         <script>
             const manifestUri = '{stream_url}';
             const drmInfo = '{drm_key or ''}';
+
             async function initPlayer() {{
                 const video = document.getElementById('video');
                 const player = new shaka.Player(video);
                 const ui = new shaka.ui.Overlay(player, document.querySelector('[data-shaka-player-container]'), video);
+
+                // إعدادات الواجهة الاحترافية
+                ui.configure({{
+                    controlPanelElements: ['play_pause', 'time_and_duration', 'spacer', 'mute', 'volume', 'fullscreen', 'overflow_menu'],
+                    addSeekBar: true
+                }});
+
                 if (drmInfo) {{
                     if (drmInfo.includes('keyid=') && drmInfo.includes('key=')) {{
                         try {{
                             const urlParams = new URLSearchParams(drmInfo.substring(drmInfo.indexOf('?')));
                             const clearKeys = {{ [urlParams.get('keyid')]: urlParams.get('key') }};
                             player.configure({{ drm: {{ clearKeys: clearKeys }} }});
-                        }} catch(e) {{ console.log("Key extraction error"); }}
+                        }} catch(e) {{}}
                     }} else if (drmInfo.includes(':') && !drmInfo.startsWith('http')) {{
                         const parts = drmInfo.split(':');
                         player.configure({{ drm: {{ clearKeys: {{ [parts[0]]: parts[1] }} }} }});
@@ -84,15 +115,33 @@ def play_drm():
                         player.configure({{ drm: {{ servers: {{ 'com.widevine.alpha': drmInfo }} }} }});
                     }}
                 }}
-                try {{ await player.load(manifestUri); document.getElementById('loading').style.display = 'none'; video.requestFullscreen(); }}
-                catch (e) {{ document.getElementById('loading').innerHTML = '❌ خطأ: ' + e.code; }}
+
+                player.addEventListener('error', onErrorEvent);
+
+                try {{
+                    await player.load(manifestUri);
+                    document.getElementById('loading').style.display = 'none';
+                }}
+                catch (e) {{
+                    onError(e);
+                }}
             }}
+
+            function onErrorEvent(event) {{ onError(event.detail); }}
+            function onError(error) {{
+                document.getElementById('spinner').style.display = 'none';
+                // إظهار الخطأ بدقة لنعرف المشكلة
+                document.getElementById('loading-text').innerHTML = '❌ عذراً، فشل فك التشفير<br><br><span style="font-size:14px; color:#ff4d4d; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px;">Error Code: ' + error.code + '</span>';
+                console.error('Error code', error.code, 'object', error);
+            }}
+
             document.addEventListener('shaka-ui-loaded', initPlayer);
         </script>
     </body>
     </html>
     """
     return html
+
 
 # مسار البروكسي الرئيسي (M3U8)
 @app.route('/stream.m3u8')
