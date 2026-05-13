@@ -1,18 +1,26 @@
 import requests
 import urllib.parse
+import base64
 from flask import Flask, request, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
+# دالة فك التشفير
+def decode_b64(val):
+    if not val: return None
+    try:
+        val += '=' * (-len(val) % 4) # إصلاح الفراغات
+        return base64.b64decode(val).decode('utf-8')
+    except:
+        return val # إذا لم يكن مشفراً، يعيده كما هو
+
 def get_headers(ua, ref):
     headers = {'User-Agent': ua if ua else 'Mozilla/5.0'}
     if ref:
-        # الخدعة: إذا وصل الريفرير بدون https نقوم بإضافتها نحن لكي لا يغضب التطبيق
         if not ref.startswith('http'):
             ref = 'https://' + ref
-            
         headers['Referer'] = ref
         try:
             parsed_ref = urllib.parse.urlparse(ref)
@@ -23,9 +31,10 @@ def get_headers(ua, ref):
 
 @app.route('/stream.m3u8')
 def proxy_m3u8():
-    stream_url = request.args.get('url')
-    user_agent = request.args.get('ua')
-    referer = request.args.get('ref')
+    # استقبال البيانات المشفرة أو العادية
+    stream_url = decode_b64(request.args.get('bx_url')) or request.args.get('url')
+    user_agent = decode_b64(request.args.get('bx_ua')) or request.args.get('ua')
+    referer = decode_b64(request.args.get('bx_ref')) or request.args.get('ref')
 
     if not stream_url: return "URL missing", 400
     headers = get_headers(user_agent, referer)
@@ -59,9 +68,9 @@ def proxy_m3u8():
 
 @app.route('/ts')
 def proxy_ts():
-    ts_url = request.args.get('url')
-    ua = request.args.get('ua')
-    ref = request.args.get('ref')
+    ts_url = decode_b64(request.args.get('bx_url')) or request.args.get('url')
+    ua = decode_b64(request.args.get('bx_ua')) or request.args.get('ua')
+    ref = decode_b64(request.args.get('bx_ref')) or request.args.get('ref')
     
     headers = get_headers(ua, ref)
 
