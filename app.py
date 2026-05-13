@@ -34,12 +34,16 @@ def get_headers(ua, ref):
             pass
     return headers
 
-# مسار سحب قطع الـ DRM عبر سيرفرنا 
+# 🔥 المسار الخاص بسحب قطع الـ DRM (مع أوامر الطباعة لكشف الخلل) 🔥
 @app.route('/shaka_proxy')
 def shaka_proxy():
     target_url = decode_b64(request.args.get('bx_url'))
     ua = decode_b64(request.args.get('bx_ua'))
     ref = decode_b64(request.args.get('bx_ref'))
+    
+    print("\n" + "="*40, file=sys.stderr, flush=True)
+    print(f"[DRM PROXY] TARGET: {target_url}", file=sys.stderr, flush=True)
+    print(f"[DRM PROXY] REF: {ref} | UA: {ua}", file=sys.stderr, flush=True)
     
     if not target_url: return "Missing URL", 400
     headers = get_headers(ua, ref)
@@ -49,6 +53,8 @@ def shaka_proxy():
         
     try:
         r = requests.get(target_url, headers=headers, stream=True, timeout=15, verify=False)
+        print(f"[DRM PROXY] HTTP STATUS: {r.status_code}", file=sys.stderr, flush=True)
+        print("="*40 + "\n", file=sys.stderr, flush=True)
         
         resp_headers = {}
         if 'Content-Type' in r.headers: resp_headers['Content-Type'] = r.headers['Content-Type']
@@ -62,6 +68,7 @@ def shaka_proxy():
                 
         return Response(generate(), status=r.status_code, headers=resp_headers)
     except Exception as e:
+        print(f"[DRM PROXY] FATAL ERROR: {str(e)}", file=sys.stderr, flush=True)
         return str(e), 500
 
 @app.route('/drm')
@@ -70,6 +77,8 @@ def play_drm():
     drm_key = decode_b64(request.args.get('bx_key'))
     raw_ua = request.args.get('bx_ua') or ''
     raw_ref = request.args.get('bx_ref') or ''
+    
+    print(f"\n[DRM PAGE OPENED] URL: {stream_url}", file=sys.stderr, flush=True)
     
     html = f"""
     <!DOCTYPE html>
@@ -117,7 +126,6 @@ def play_drm():
                     addSeekBar: true
                 }});
 
-                // توجيه الطلبات لسيرفرنا
                 player.getNetworkingEngine().registerRequestFilter(function(type, request) {{
                     if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST || type == shaka.net.NetworkingEngine.RequestType.SEGMENT) {{
                         const originalUri = request.uris[0];
@@ -126,7 +134,6 @@ def play_drm():
                     }}
                 }});
 
-                // 🔥 الحل السحري (بوصلة المشغل): نُخبر المشغل بالرابط الأصلي لكي لا يضيع أثناء البحث عن القطع 🔥
                 player.getNetworkingEngine().registerResponseFilter(function(type, response) {{
                     if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST) {{
                         response.uri = manifestUri; 
