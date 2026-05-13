@@ -6,12 +6,14 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# دالة ذكية لتجهيز الترويسات المطلوبة لكسر الحماية
 def get_headers(ua, ref):
     headers = {'User-Agent': ua if ua else 'Mozilla/5.0'}
     if ref:
+        # الخدعة: إذا وصل الريفرير بدون https نقوم بإضافتها نحن لكي لا يغضب التطبيق
+        if not ref.startswith('http'):
+            ref = 'https://' + ref
+            
         headers['Referer'] = ref
-        # استخراج النطاق (Origin) من الريفرير لكسر الحمايات المعقدة
         try:
             parsed_ref = urllib.parse.urlparse(ref)
             headers['Origin'] = f"{parsed_ref.scheme}://{parsed_ref.netloc}"
@@ -30,7 +32,7 @@ def proxy_m3u8():
 
     try:
         proxied_res = requests.get(stream_url, headers=headers, timeout=10, verify=False)
-        proxied_res.raise_for_status() # للتأكد من عدم وجود حظر 403
+        proxied_res.raise_for_status()
         
         base_url = stream_url.rsplit('/', 1)[0] + '/'
         lines = proxied_res.text.splitlines()
