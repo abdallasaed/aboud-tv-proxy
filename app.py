@@ -34,7 +34,7 @@ def get_headers(ua, ref):
             pass
     return headers
 
-# 🔥 مسار جديد مخصص لسحب قطع الـ DRM عبر سيرفرنا 🔥
+# مسار سحب قطع الـ DRM عبر سيرفرنا 
 @app.route('/shaka_proxy')
 def shaka_proxy():
     target_url = decode_b64(request.args.get('bx_url'))
@@ -44,7 +44,6 @@ def shaka_proxy():
     if not target_url: return "Missing URL", 400
     headers = get_headers(ua, ref)
     
-    # تمرير طلبات التقطيع (Range) عشان الفيديو ما يقطع
     if 'Range' in request.headers:
         headers['Range'] = request.headers['Range']
         
@@ -55,7 +54,7 @@ def shaka_proxy():
         if 'Content-Type' in r.headers: resp_headers['Content-Type'] = r.headers['Content-Type']
         if 'Content-Range' in r.headers: resp_headers['Content-Range'] = r.headers['Content-Range']
         if 'Accept-Ranges' in r.headers: resp_headers['Accept-Ranges'] = r.headers['Accept-Ranges']
-        resp_headers['Access-Control-Allow-Origin'] = '*' # كسر حماية CORS
+        resp_headers['Access-Control-Allow-Origin'] = '*' 
         
         def generate():
             for chunk in r.iter_content(chunk_size=8192):
@@ -69,7 +68,6 @@ def shaka_proxy():
 def play_drm():
     stream_url = decode_b64(request.args.get('bx_url'))
     drm_key = decode_b64(request.args.get('bx_key'))
-    # أخذ التشفير كما هو لتمريره للـ JS
     raw_ua = request.args.get('bx_ua') or ''
     raw_ref = request.args.get('bx_ref') or ''
     
@@ -119,12 +117,19 @@ def play_drm():
                     addSeekBar: true
                 }});
 
-                // 🔥 توجيه كل طلبات المشغل إلى سيرفرنا عشان نحط الريفرير ونكسر الحماية 🔥
+                // توجيه الطلبات لسيرفرنا
                 player.getNetworkingEngine().registerRequestFilter(function(type, request) {{
                     if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST || type == shaka.net.NetworkingEngine.RequestType.SEGMENT) {{
                         const originalUri = request.uris[0];
                         const b64Encode = (str) => btoa(unescape(encodeURIComponent(str)));
                         request.uris[0] = '/shaka_proxy?bx_url=' + encodeURIComponent(b64Encode(originalUri)) + '&bx_ua=' + rawUa + '&bx_ref=' + rawRef;
+                    }}
+                }});
+
+                // 🔥 الحل السحري (بوصلة المشغل): نُخبر المشغل بالرابط الأصلي لكي لا يضيع أثناء البحث عن القطع 🔥
+                player.getNetworkingEngine().registerResponseFilter(function(type, response) {{
+                    if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST) {{
+                        response.uri = manifestUri; 
                     }}
                 }});
 
