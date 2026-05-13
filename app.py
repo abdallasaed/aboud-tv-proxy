@@ -22,7 +22,8 @@ def decode_b64(val):
         return val
 
 def get_headers(ua, ref):
-    headers = {'User-Agent': ua if ua else 'Mozilla/5.0'}
+    # استخدام User-Agent قوي جداً لتخطي حظر السيرفرات السحابية
+    headers = {'User-Agent': ua if ua else 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36'}
     if ref:
         if not ref.startswith('http'):
             ref = 'https://' + ref
@@ -34,10 +35,48 @@ def get_headers(ua, ref):
             pass
     return headers
 
+# 🔥 مسار كسر حماية CORS (البروكسي الشبح) 🔥
+@app.route('/shaka_proxy')
+def shaka_proxy():
+    target_url = decode_b64(request.args.get('bx_url'))
+    ua = decode_b64(request.args.get('bx_ua'))
+    ref = decode_b64(request.args.get('bx_ref'))
+    
+    if not target_url: return "Missing URL", 400
+    
+    headers = get_headers(ua, ref)
+    
+    # تمرير طلبات التقطيع عشان الفيديو ما يقطع
+    if 'Range' in request.headers:
+        headers['Range'] = request.headers['Range']
+        
+    try:
+        r = requests.get(target_url, headers=headers, stream=True, timeout=15, verify=False)
+        
+        resp_headers = {}
+        for key, value in r.headers.items():
+            if key.lower() not in ['transfer-encoding', 'content-encoding', 'connection']:
+                resp_headers[key] = value
+        
+        # الطلقة السحرية لكسر حماية CORS والسماح للمشغل بالعمل
+        resp_headers['Access-Control-Allow-Origin'] = '*' 
+        resp_headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        resp_headers['Access-Control-Allow-Headers'] = '*'
+        
+        def generate():
+            for chunk in r.iter_content(chunk_size=8192):
+                yield chunk
+                
+        return Response(generate(), status=r.status_code, headers=resp_headers)
+    except Exception as e:
+        return str(e), 500
+
 @app.route('/drm')
 def play_drm():
     stream_url = decode_b64(request.args.get('bx_url'))
     drm_key = decode_b64(request.args.get('bx_key'))
+    raw_ua = request.args.get('bx_ua') or ''
+    raw_ref = request.args.get('bx_ref') or ''
     
     html = f"""
     <!DOCTYPE html>
@@ -64,7 +103,7 @@ def play_drm():
         <button class="back-btn" onclick="history.back()">🔙</button>
         <div id="loading" class="loading-container">
             <div class="spinner" id="spinner"></div>
-            <div id="loading-text" style="font-size: 16px; font-weight: bold;">جاري فك التشفير السينمائي... 🚀</div>
+            <div id="loading-text" style="font-size: 16px; font-weight: bold;">جاري كسر الحماية... 🚀</div>
         </div>
         <div data-shaka-player-container>
             <video autoplay data-shaka-player id="video"></video>
@@ -72,6 +111,8 @@ def play_drm():
         <script>
             const manifestUri = '{stream_url}';
             const drmInfo = '{drm_key or ''}';
+            const rawUa = '{raw_ua}';
+            const rawRef = '{raw_ref}';
 
             async function initPlayer() {{
                 const video = document.getElementById('video');
@@ -83,7 +124,20 @@ def play_drm():
                     addSeekBar: true
                 }});
 
-                // لاحظ: قمنا بحذف البروكسي هنا لكي يتصل هاتفك بالقناة مباشرة!
+                // إجبار المشغل على المرور من البروكسي الشبح الخاص بنا
+                player.getNetworkingEngine().registerRequestFilter(function(type, request) {{
+                    if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST || type == shaka.net.NetworkingEngine.RequestType.SEGMENT) {{
+                        const originalUri = request.uris[0];
+                        const b64Encode = (str) => btoa(unescape(encodeURIComponent(str)));
+                        request.uris[0] = window.location.origin + '/shaka_proxy?bx_url=' + encodeURIComponent(b64Encode(originalUri)) + '&bx_ua=' + rawUa + '&bx_ref=' + rawRef;
+                    }}
+                }});
+
+                player.getNetworkingEngine().registerResponseFilter(function(type, response) {{
+                    if (type == shaka.net.NetworkingEngine.RequestType.MANIFEST) {{
+                        response.uri = manifestUri; 
+                    }}
+                }});
 
                 if (drmInfo) {{
                     if (drmInfo.includes('keyid=') && drmInfo.includes('key=')) {{
