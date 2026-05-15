@@ -20,13 +20,18 @@ def get_headers(ua, ref):
     headers = {'User-Agent': ua if ua else 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36'}
     if ref:
         headers['Referer'] = ref
+        try:
+            parsed_ref = urllib.parse.urlparse(ref)
+            headers['Origin'] = f"{parsed_ref.scheme}://{parsed_ref.netloc}"
+        except:
+            pass
     return headers
 
 @app.route('/')
 def home():
     return "<h1>Aboud TV Proxy is Online 🚀</h1>", 200
 
-# 🔥 البروكسي الشبح المُحدث (يدعم OPTIONS لكسر الـ 1002 نهائياً) 🔥
+# 🔥 البروكسي الشبح الخاص بمشغل الشاكا (محدث ليدعم OPTIONS ويكسر خطأ 1001/1002) 🔥
 @app.route('/shaka_proxy', methods=['GET', 'OPTIONS'])
 def shaka_proxy():
     if request.method == 'OPTIONS':
@@ -45,6 +50,7 @@ def shaka_proxy():
     if not target_url: return "Missing URL", 400
     headers = get_headers(ua, ref)
     
+    # ضروري جداً لتشغيل قطع الفيديو بدون تقطيع
     if 'Range' in request.headers:
         headers['Range'] = request.headers['Range']
         
@@ -66,6 +72,7 @@ def shaka_proxy():
     except Exception as e:
         return str(e), 500
 
+# 🔥 مسار الـ M3U8 الأصلي اللي كان شغال معاك 100% 🔥
 @app.route('/stream.m3u8')
 def proxy_m3u8():
     stream_url = decode_b64(request.args.get('bx_url'))
